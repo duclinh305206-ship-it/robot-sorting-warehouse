@@ -1,0 +1,15 @@
+# Môi trường ảo Python (Cực kỳ nặng ~300MB, tuyệt đối không đẩy lên GitHub)
+.venv/
+venv/
+ENV/
+
+# Bộ nhớ tạm Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cấu hình VS Code cá nhân
+.vscode/
+
+# Tệp nhật ký / log
+*.log
