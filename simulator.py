@@ -78,4 +78,5 @@ def run_loop(interval=3, count=None):
         print("\nĐã dừng bộ giả lập.")
 
 if __name__ == "__main__":
-    run_loop(interval=1, count=15)
+    # Chạy liên tục không ngừng (mỗi 2 giây gắp 1 kiện). Muốn dừng bấm Ctrl + C
+    run_loop(interval=2, count=None)
