@@ -163,6 +163,26 @@ for idx, (_, row) in enumerate(df_robots.iterrows()):
         - 📐 **Bậc 2 (Cánh tay nâng):** `{row.get('GocBac2', 45.0)}°`
         - ✋ **Bậc 3 (Cổ tay kẹp):** `{row.get('GocBac3', 0.0)}°`
         """)
+
+        # TÍNH TOÁN VÀ VẼ ĐỒNG HỒ ĐO HIỆU SUẤT OEE
+        r_logs = df_logs[df_logs["MaRobot"] == row["MaRobot"]]
+        r_total = len(r_logs)
+        if r_total > 0:
+            # 1. Availability: Mức sẵn sàng (nếu đang chạy là 95%, sẵn sàng 80%, bảo trì 0%)
+            avail = 0.95 if row["TrangThai"] == "DangChay" else (0.80 if row["TrangThai"] == "SanSang" else 0.0)
+            # 2. Performance: Hiệu suất tốc độ gắp (so với chuẩn 35 sp/phút)
+            perf = min(1.0, row["TocDoGap"] / 35.0)
+            # 3. Quality: Tỷ lệ hàng đạt (thành công / tổng số)
+            r_success = len(r_logs[r_logs["TrangThaiPhanLoai"] == "ThanhCong"])
+            qual = r_success / r_total
+            oee_val = round(avail * perf * qual * 100, 1)
+        else:
+            oee_val = 85.0 if row["TrangThai"] == "DangChay" else 0.0
+
+        # Thanh đo phần trăm OEE
+        st.write(f"📈 **Chỉ số OEE (Hiệu suất):** `{oee_val}%`")
+        oee_color = "🟢 Tốt" if oee_val >= 80 else ("🟡 Trung bình" if oee_val >= 60 else "🔴 Kém")
+        st.progress(min(1.0, max(0.0, oee_val / 100.0)), text=f"Đánh giá OEE: {oee_color}")
         
         st.write(f"🌡️ **Nhiệt độ khớp:** `{row['NhietDoKhopNoi']} °C`")
         st.write(f"⚡ **Tốc độ:** `{row['TocDoGap']} sp/phút`")
