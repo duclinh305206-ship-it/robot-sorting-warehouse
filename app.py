@@ -1,10 +1,6 @@
 """
 ỨNG DỤNG GIÁM SÁT & QUẢN LÝ CÁNH TAY ROBOT PHÂN LOẠI SẢN PHẨM (STREAMLIT)
-Phục vụ 4 yêu cầu bài tập lớn:
-1. Biểu đồ (Charts)
-2. Truy vấn (Query & Filter)
-3. Máy móc đang hoạt động (Robot Status)
-4. Số lượng hiện tại (KPIs)
+Phiên bản Nâng cao: Động học 3 Bậc tự do (3-DOF), Góc quay, Hành trình & Kiện hàng tham gia.
 """
 
 import sqlite3
@@ -15,18 +11,25 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import threading
 import time
+from streamlit_autorefresh import st_autorefresh
 from simulator import simulate_step
 
-st.set_page_config(page_title="Robot Sorting Warehouse Dashboard", layout="wide", page_icon="🤖")
+st.set_page_config(page_title="Hệ Thống Giám Sát Robot 3 Bậc", layout="wide", page_icon="🦾")
+
+# TỰ ĐỘNG LÀM MỚI MỖI 2 GIÂY (LIVE REAL-TIME STREAMING KHÔNG CẦN BẤM NÚT)
+st_autorefresh(interval=2000, key="robot_live_refresh")
+
+# Cấu hình font cho Matplotlib
+plt.rcParams['font.sans-serif'] = 'Segoe UI'
+plt.rcParams['axes.unicode_minus'] = False
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "warehouse_robot.db")
 
-# Quản lý luồng chạy ngầm của bộ giả lập trong session_state
-if "simulator_running" not in st.session_state:
-    st.session_state.simulator_running = False
+# Biến kiểm soát dừng chạy luồng ngầm cấp tiến trình
+STOP_FLAG_FILE = os.path.join(os.path.dirname(__file__), ".simulator_running")
 
 def background_simulator():
-    while st.session_state.get("simulator_running", False):
+    while os.path.exists(STOP_FLAG_FILE):
         try:
             simulate_step()
         except Exception:
@@ -34,13 +37,20 @@ def background_simulator():
         time.sleep(2)
 
 def start_simulator():
-    if not st.session_state.simulator_running:
+    if not os.path.exists(STOP_FLAG_FILE):
+        with open(STOP_FLAG_FILE, "w") as f:
+            f.write("running")
         st.session_state.simulator_running = True
         thread = threading.Thread(target=background_simulator, daemon=True)
         thread.start()
 
 def stop_simulator():
+    if os.path.exists(STOP_FLAG_FILE):
+        os.remove(STOP_FLAG_FILE)
     st.session_state.simulator_running = False
+
+is_running = os.path.exists(STOP_FLAG_FILE)
+st.session_state.simulator_running = is_running
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
@@ -53,7 +63,8 @@ def load_data():
         df_logs = pd.read_sql_query("""
             SELECT 
                 l.MaPK, l.MaRobot, r.TenRobot, l.MaSanPham,
-                c.TenLoai, l.KhoiLuong, l.ThoiGian, l.TrangThaiPhanLoai, l.GhiChu
+                c.TenLoai, l.KhoiLuong, l.ThoiGian, l.TrangThaiPhanLoai,
+                l.GocBac1, l.GocBac2, l.GocBac3, l.ThoiGianHanhTrinh, l.GhiChu
             FROM NhatKyPhanLoai l
             JOIN ThietBiRobot r ON l.MaRobot = r.MaRobot
             JOIN LoaiSanPham c ON l.MaLoai = c.MaLoai
@@ -66,12 +77,18 @@ def load_data():
 
 df_robots, df_categories, df_logs, df_alerts = load_data()
 
-# ----------------- TIÊU ĐỀ HỆ THỐNG -----------------
-st.title("🏭 HỆ THỐNG GIÁM SÁT & QUẢN LÝ CÁNH TAY ROBOT")
-st.caption("Đề tài: Thu thập và quản lí dữ liệu các cánh tay robot công nghiệp của hệ thống phân loại sản phẩm trong nhà kho tự động.")
+# ----------------- BANNER THÔNG BÁO VỪA GẮP THÀNH CÔNG KIỆN HÀNG MỚI -----------------
+if not df_logs.empty:
+    latest_item = df_logs.iloc[0]
+    st.success(f"""
+    📦 **VỪA GẮP THÀNH CÔNG:** Robot **{latest_item['MaRobot']}** ({latest_item['TenRobot']}) vừa phân loại xong kiện **`{latest_item['MaSanPham']}`** | 
+    Nhóm: **{latest_item['TenLoai']}** ({latest_item['KhoiLuong']} kg) | 
+    🔄 Góc 3 bậc: `B1: {latest_item['GocBac1']}°`, `B2: {latest_item['GocBac2']}°`, `B3: {latest_item['GocBac3']}°` | 
+    ⚡ Hành trình: `{latest_item['ThoiGianHanhTrinh']} giây` | Lúc `{latest_item['ThoiGian']}`
+    """)
 
-# ----------------- THANH ĐIỀU KHIỂN ROBOT TRỰC TIẾP (GỢI Ý 1) -----------------
-st.subheader("🕹️ Điều khiển dây chuyền Robot")
+# ----------------- THANH ĐIỀU KHIỂN DÂY CHUYỀN -----------------
+st.subheader("🕹️ Điều khiển vận hành dây chuyền")
 ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1.5, 1.5, 1.5, 3.5])
 
 with ctrl1:
@@ -94,6 +111,7 @@ with ctrl3:
         try:
             conn.execute("DELETE FROM NhatKyPhanLoai")
             conn.execute("DELETE FROM NhatKyCanhBao")
+            conn.execute("UPDATE ThietBiRobot SET KienHangHienTai = '--', GocBac1 = 0.0, GocBac2 = 45.0, GocBac3 = 0.0")
             conn.commit()
             st.success("Đã reset!")
         finally:
@@ -102,47 +120,58 @@ with ctrl3:
 
 with ctrl4:
     if st.session_state.simulator_running:
-        st.info("🟢 **DÂY CHUYỀN ĐANG CHẠY NGẦM:** Robot đang tự động gắp hàng mỗi 2 giây. (Bấm F5 hoặc 'Làm mới' để xem số liệu tăng liên tục!)")
+        st.info("🟢 **DÂY CHUYỀN ĐANG CHẠY:** Robot đang gắp hàng và xoay các góc bậc ngầm. Bấm F5 hoặc 'Làm mới' để xem số liệu cập nhật.")
     else:
-        st.caption("⚪ **Dây chuyền đang tạm dừng.** Bấm 'KHỞI ĐỘNG DÂY CHUYỀN' để robot bắt đầu gắp hàng.")
+        st.caption("⚪ **Dây chuyền đang tạm dừng.** Bấm 'KHỞI ĐỘNG' để kích hoạt cánh tay robot gắp hàng.")
 
 st.divider()
 
-# ----------------- 4. SỐ LƯỢNG HIỆN TẠI (KPIs) -----------------
+# ----------------- 1. SỐ LƯỢNG HIỆN TẠI (KPIs) -----------------
 st.subheader("📊 1. Thống kê & Số lượng hiện tại")
 total_sorted = len(df_logs)
 success_count = len(df_logs[df_logs["TrangThaiPhanLoai"] == "ThanhCong"])
 fail_count = total_sorted - success_count
 success_rate = (success_count / total_sorted * 100) if total_sorted > 0 else 0
 active_robots = len(df_robots[df_robots["TrangThai"] == "DangChay"])
+avg_cycle = df_logs["ThoiGianHanhTrinh"].mean() if not df_logs.empty else 0.0
 
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("Tổng sản phẩm đã phân loại", f"{total_sorted:,} kiện")
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+kpi1.metric("Tổng sản phẩm đã gắp", f"{total_sorted:,} kiện")
 kpi2.metric("Phân loại thành công", f"{success_count:,} kiện", f"{success_rate:.1f}%")
-kpi3.metric("Số kiện lỗi / rơi hàng", f"{fail_count:,} kiện", delta_color="inverse")
-kpi4.metric("Robot đang chạy (Active)", f"{active_robots} / {len(df_robots)}")
+kpi3.metric("Số kiện lỗi / rơi", f"{fail_count:,} kiện", delta_color="inverse")
+kpi4.metric("Robot đang chạy", f"{active_robots} / {len(df_robots)}")
+kpi5.metric("Chu kỳ hành trình TB", f"{avg_cycle:.2f} giây")
 
 st.divider()
 
-# ----------------- 3. MÁY MÓC ĐANG HOẠT ĐỘNG -----------------
-st.subheader("🦾 2. Trạng thái các cánh tay robot công nghiệp")
+# ----------------- 2. MÁY MÓC ĐANG HOẠT ĐỘNG & GÓC QUAY 3 BẬC -----------------
+st.subheader("🦾 2. Giám sát Động học & Góc quay Cánh tay Robot (3 Bậc Tự Do)")
 r_cols = st.columns(len(df_robots))
+
 for idx, (_, row) in enumerate(df_robots.iterrows()):
     with r_cols[idx]:
         status_color = "🟢" if row["TrangThai"] == "DangChay" else ("🟡" if row["TrangThai"] == "SanSang" else "🔴")
         st.markdown(f"### {status_color} {row['MaRobot']}")
         st.write(f"**{row['TenRobot']}**")
-        st.write(f"📍 **Vị trí:** {row['ViTriBuaPhanLoai']}")
-        st.write(f"⚙️ **Trạng thái:** `{row['TrangThai']}`")
+        st.write(f"📍 **Vị trí:** `{row['ViTriBuaPhanLoai']}`")
+        st.write(f"📦 **Kiện đang tham gia:** `{row.get('KienHangHienTai', '--')}`")
+        
+        # Hộp hiển thị góc quay 3 bậc
+        st.info(f"""
+        **GÓC QUAY 3 BẬC HIỆN TẠI:**
+        - 🔄 **Bậc 1 (Đế xoay):** `{row.get('GocBac1', 0.0)}°`
+        - 📐 **Bậc 2 (Cánh tay nâng):** `{row.get('GocBac2', 45.0)}°`
+        - ✋ **Bậc 3 (Cổ tay kẹp):** `{row.get('GocBac3', 0.0)}°`
+        """)
+        
         st.write(f"🌡️ **Nhiệt độ khớp:** `{row['NhietDoKhopNoi']} °C`")
-        st.write(f"⚡ **Tốc độ gắp:** `{row['TocDoGap']} sp/phút`")
+        st.write(f"⚡ **Tốc độ:** `{row['TocDoGap']} sp/phút`")
         st.caption(f"Cập nhật: {row['CapNhatLanCuoi']}")
 
 st.divider()
 
-# ----------------- 1. BIỂU ĐỒ TRỰC QUAN HÓA -----------------
-st.subheader("📈 3. Biểu đồ phân tích vận hành")
-
+# ----------------- 3. BIỂU ĐỒ TRỰC QUAN HÓA -----------------
+st.subheader("📈 3. Biểu đồ phân tích vận hành & Hành trình")
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
@@ -151,23 +180,25 @@ with chart_col1:
         fig1, ax1 = plt.subplots(figsize=(7, 4))
         cat_counts = df_logs["TenLoai"].value_counts().reset_index()
         cat_counts.columns = ["TenLoai", "SoLuong"]
-        sns.barplot(data=cat_counts, x="TenLoai", y="SoLuong", palette="Blues_d", ax=ax1)
+        sns.barplot(data=cat_counts, x="TenLoai", y="SoLuong", palette="Blues_r", ax=ax1)
         ax1.set_xlabel("Loại sản phẩm")
         ax1.set_ylabel("Số lượng đã gắp")
-        plt.xticks(rotation=20)
+        plt.xticks(rotation=15)
+        for p in ax1.patches:
+            ax1.annotate(f"{int(p.get_height())}", (p.get_x() + p.get_width() / 2., p.get_height()),
+                         ha='center', va='bottom', fontsize=9, xytext=(0, 2), textcoords='offset points')
         st.pyplot(fig1)
         plt.close(fig1)
     else:
         st.info("Chưa có dữ liệu để vẽ biểu đồ.")
 
 with chart_col2:
-    st.write("##### Hiệu suất phân loại theo từng cánh tay robot")
+    st.write("##### Phân bổ Thời gian hành trình gắp hàng (Giây)")
     if not df_logs.empty:
         fig2, ax2 = plt.subplots(figsize=(7, 4))
-        sns.countplot(data=df_logs, x="MaRobot", hue="TrangThaiPhanLoai", palette="Set2", ax=ax2)
+        sns.boxplot(data=df_logs, x="MaRobot", y="ThoiGianHanhTrinh", palette="Set2", ax=ax2)
         ax2.set_xlabel("Mã cánh tay Robot")
-        ax2.set_ylabel("Số lượt gắp")
-        ax2.legend(title="Kết quả")
+        ax2.set_ylabel("Thời gian hành trình (giây)")
         st.pyplot(fig2)
         plt.close(fig2)
     else:
@@ -175,8 +206,8 @@ with chart_col2:
 
 st.divider()
 
-# ----------------- 2. TRUY VẤN VÀ BỘ LỌC -----------------
-st.subheader("🔍 4. Truy vấn nhật ký phân loại (Query & Filter)")
+# ----------------- 4. TRUY VẤN VÀ BỘ LỌC (CÓ CÁC CỘT GÓC QUAY 3 BẬC) -----------------
+st.subheader("🔍 4. Truy vấn nhật ký phân loại (Góc quay & Hành trình)")
 
 with st.expander("🛠️ Bộ lọc tìm kiếm dữ liệu", expanded=True):
     f_col1, f_col2, f_col3 = st.columns(3)
@@ -186,7 +217,7 @@ with st.expander("🛠️ Bộ lọc tìm kiếm dữ liệu", expanded=True):
         selected_robot = st.selectbox("Chọn Cánh tay Robot:", robot_list)
         
     with f_col2:
-        status_list = ["Tất cả"] + list(df_logs["TrangThaiPhanLoai"].unique())
+        status_list = ["Tất cả"] + list(df_logs["TrangThaiPhanLoai"].unique()) if not df_logs.empty else ["Tất cả"]
         selected_status = st.selectbox("Trạng thái phân loại:", status_list)
         
     with f_col3:
@@ -204,7 +235,7 @@ if selected_status != "Tất cả":
 if selected_category != "Tất cả":
     filtered_logs = filtered_logs[filtered_logs["TenLoai"] == selected_category]
 
-# Định dạng tô màu cho bảng dữ liệu: Thành công -> Xanh lá nhẹ, Lỗi/Rơi hàng -> Đỏ nhạt
+# Tô màu trạng thái
 def highlight_status(row):
     status = row["TrangThaiPhanLoai"]
     if status == "ThanhCong":
@@ -213,7 +244,7 @@ def highlight_status(row):
         return ["background-color: #f8d7da; color: #721c24; font-weight: bold;" if col == "TrangThaiPhanLoai" else "" for col in row.index]
     return ["" for _ in row.index]
 
-st.write(f"Tìm thấy **{len(filtered_logs)}** bản ghi phù hợp (🟢 Xanh = Thành công | 🔴 Đỏ = Sự cố/Lỗi):")
+st.write(f"Tìm thấy **{len(filtered_logs)}** bản ghi phù hợp (🟢 Xanh = Thành công | 🔴 Đỏ = Lỗi):")
 styled_df = filtered_logs.style.apply(highlight_status, axis=1)
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -221,7 +252,7 @@ csv_data = filtered_logs.to_csv(index=False).encode('utf-8')
 st.download_button(
     label="📥 Tải kết quả truy vấn (CSV)",
     data=csv_data,
-    file_name="nhat_ky_phan_loai.csv",
+    file_name="nhat_ky_phan_loai_3dof.csv",
     mime="text/csv"
 )
 
