@@ -147,8 +147,18 @@ if selected_status != "Tất cả":
 if selected_category != "Tất cả":
     filtered_logs = filtered_logs[filtered_logs["TenLoai"] == selected_category]
 
-st.write(f"Tìm thấy **{len(filtered_logs)}** bản ghi phù hợp:")
-st.dataframe(filtered_logs, use_container_width=True, hide_index=True)
+# Định dạng tô màu cho bảng dữ liệu: Thành công -> Xanh lá nhẹ, Lỗi/Rơi hàng -> Đỏ nhạt
+def highlight_status(row):
+    status = row["TrangThaiPhanLoai"]
+    if status == "ThanhCong":
+        return ["background-color: #d4edda; color: #155724; font-weight: bold;" if col == "TrangThaiPhanLoai" else "" for col in row.index]
+    elif status in ["RoiHang", "LoiNhanDien", "SaiThung"]:
+        return ["background-color: #f8d7da; color: #721c24; font-weight: bold;" if col == "TrangThaiPhanLoai" else "" for col in row.index]
+    return ["" for _ in row.index]
+
+st.write(f"Tìm thấy **{len(filtered_logs)}** bản ghi phù hợp (🟢 Xanh = Thành công | 🔴 Đỏ = Sự cố/Lỗi):")
+styled_df = filtered_logs.style.apply(highlight_status, axis=1)
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 csv_data = filtered_logs.to_csv(index=False).encode('utf-8')
 st.download_button(
