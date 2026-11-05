@@ -13,10 +13,34 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
+import threading
+import time
+from simulator import simulate_step
 
 st.set_page_config(page_title="Robot Sorting Warehouse Dashboard", layout="wide", page_icon="🤖")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "warehouse_robot.db")
+
+# Quản lý luồng chạy ngầm của bộ giả lập trong session_state
+if "simulator_running" not in st.session_state:
+    st.session_state.simulator_running = False
+
+def background_simulator():
+    while st.session_state.get("simulator_running", False):
+        try:
+            simulate_step()
+        except Exception:
+            pass
+        time.sleep(2)
+
+def start_simulator():
+    if not st.session_state.simulator_running:
+        st.session_state.simulator_running = True
+        thread = threading.Thread(target=background_simulator, daemon=True)
+        thread.start()
+
+def stop_simulator():
+    st.session_state.simulator_running = False
 
 def get_connection():
     return sqlite3.connect(DB_PATH)
@@ -46,22 +70,43 @@ df_robots, df_categories, df_logs, df_alerts = load_data()
 st.title("🏭 HỆ THỐNG GIÁM SÁT & QUẢN LÝ CÁNH TAY ROBOT")
 st.caption("Đề tài: Thu thập và quản lí dữ liệu các cánh tay robot công nghiệp của hệ thống phân loại sản phẩm trong nhà kho tự động.")
 
-col_btn1, col_btn2, col_btn3 = st.columns([1.5, 1.5, 4])
-with col_btn1:
+# ----------------- THANH ĐIỀU KHIỂN ROBOT TRỰC TIẾP (GỢI Ý 1) -----------------
+st.subheader("🕹️ Điều khiển dây chuyền Robot")
+ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1.5, 1.5, 1.5, 3.5])
+
+with ctrl1:
+    if not st.session_state.simulator_running:
+        if st.button("▶️ KHỞI ĐỘNG DÂY CHUYỀN", type="primary", use_container_width=True):
+            start_simulator()
+            st.rerun()
+    else:
+        if st.button("⏹️ DỪNG DÂY CHUYỀN", type="secondary", use_container_width=True):
+            stop_simulator()
+            st.rerun()
+
+with ctrl2:
     if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
         st.rerun()
 
-with col_btn2:
-    if st.button("🗑️ Reset nhật ký gắp", use_container_width=True, type="secondary"):
+with ctrl3:
+    if st.button("🗑️ Reset nhật ký", use_container_width=True):
         conn = get_connection()
         try:
             conn.execute("DELETE FROM NhatKyPhanLoai")
             conn.execute("DELETE FROM NhatKyCanhBao")
             conn.commit()
-            st.success("Đã reset toàn bộ lịch sử gắp hàng về 0!")
+            st.success("Đã reset!")
         finally:
             conn.close()
         st.rerun()
+
+with ctrl4:
+    if st.session_state.simulator_running:
+        st.info("🟢 **DÂY CHUYỀN ĐANG CHẠY NGẦM:** Robot đang tự động gắp hàng mỗi 2 giây. (Bấm F5 hoặc 'Làm mới' để xem số liệu tăng liên tục!)")
+    else:
+        st.caption("⚪ **Dây chuyền đang tạm dừng.** Bấm 'KHỞI ĐỘNG DÂY CHUYỀN' để robot bắt đầu gắp hàng.")
+
+st.divider()
 
 # ----------------- 4. SỐ LƯỢNG HIỆN TẠI (KPIs) -----------------
 st.subheader("📊 1. Thống kê & Số lượng hiện tại")
