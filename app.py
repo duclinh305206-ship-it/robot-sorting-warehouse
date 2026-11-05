@@ -213,14 +213,28 @@ with chart_col1:
         st.info("Chưa có dữ liệu để vẽ biểu đồ.")
 
 with chart_col2:
-    st.write("##### Phân bổ Thời gian hành trình gắp hàng (Giây)")
+    st.write("##### ⏱️ Thời gian gắp hàng trung bình của từng Robot (Giây)")
     if not df_logs.empty:
         fig2, ax2 = plt.subplots(figsize=(7, 4))
-        sns.boxplot(data=df_logs, x="MaRobot", y="ThoiGianHanhTrinh", palette="Set2", ax=ax2)
+        # Tính thời gian trung bình của từng robot
+        avg_time = df_logs.groupby("MaRobot")["ThoiGianHanhTrinh"].mean().reset_index()
+        avg_time.columns = ["MaRobot", "ThoiGianTB"]
+        
+        # Vẽ biểu đồ cột rõ ràng, trực quan
+        sns.barplot(data=avg_time, x="MaRobot", y="ThoiGianTB", palette="crest", ax=ax2)
         ax2.set_xlabel("Mã cánh tay Robot")
-        ax2.set_ylabel("Thời gian hành trình (giây)")
+        ax2.set_ylabel("Thời gian gắp trung bình (giây)")
+        ax2.set_ylim(0, max(3.0, avg_time["ThoiGianTB"].max() + 0.8))
+        
+        # Hiển thị số giây cụ thể ngay trên đầu mỗi cột
+        for p in ax2.patches:
+            val = p.get_height()
+            ax2.annotate(f"{val:.2f} giây", (p.get_x() + p.get_width() / 2., val),
+                         ha='center', va='bottom', fontsize=10, fontweight='bold', xytext=(0, 4), textcoords='offset points')
+                         
         st.pyplot(fig2)
         plt.close(fig2)
+        st.caption("💡 **Cột càng thấp = Robot gắp càng nhanh.** (Số trên đầu cột là thời gian hoàn thành 1 chu kỳ gắp).")
     else:
         st.info("Chưa có dữ liệu để vẽ biểu đồ.")
 
